@@ -38,7 +38,7 @@ jobs:
         with:
           minimum-size: 8GB
           maximum-size: 8GB
-          disk-root: C:
+          disk-root: "C:"
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
