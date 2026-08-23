@@ -1,0 +1,1104 @@
+diff --git a/src/Layers/xrRender/Blender_Recorder_StandartBinding.cpp b/src/Layers/xrRender/Blender_Recorder_StandartBinding.cpp
+index 6eaf600..80c1ae0 100644
+--- a/src/Layers/xrRender/Blender_Recorder_StandartBinding.cpp
++++ b/src/Layers/xrRender/Blender_Recorder_StandartBinding.cpp
+@@ -14,6 +14,7 @@
+ #include "../../xrEngine/environment.h"
+ 
+ #include "dxRenderDeviceRender.h"
++#include "xrRender_console.h"
+ 
+ // matrices
+ #define	BIND_DECLARE(xf)	\
+@@ -139,6 +140,24 @@ class cl_VPtexgen : public R_constant_setup
+ 
+ static cl_VPtexgen binder_VPtexgen;
+ 
++class cl_aet_refl_cam0 : public R_constant_setup
++{
++	virtual void setup(R_constant* C) { RCache.set_c(C, g_aet_refl_cam0); }
++};
++class cl_aet_refl_cam1 : public R_constant_setup
++{
++	virtual void setup(R_constant* C) { RCache.set_c(C, g_aet_refl_cam1); }
++};
++class cl_aet_refl_cam2 : public R_constant_setup
++{
++	virtual void setup(R_constant* C) { RCache.set_c(C, g_aet_refl_cam2); }
++};
++
++static cl_aet_refl_cam0 binder_aet_refl_cam0;
++static cl_aet_refl_cam1 binder_aet_refl_cam1;
++static cl_aet_refl_cam2 binder_aet_refl_cam2;
++
++
+ // fog
+ #ifndef _EDITOR
+ class cl_fog_plane : public R_constant_setup
+@@ -1368,6 +1387,10 @@ void CBlender_Compile::SetMapping()
+ 	r_Constant("m_VP", &binder_vp);
+ 	r_Constant("m_WVP", &binder_wvp);
+ 	r_Constant("m_inv_V", &binder_inv_v);
++	r_Constant("aet_refl_cam0", &binder_aet_refl_cam0);
++	r_Constant("aet_refl_cam1", &binder_aet_refl_cam1);
++	r_Constant("aet_refl_cam2", &binder_aet_refl_cam2);
++
+ 
+ 	r_Constant("m_v_prev", &binder_v_prev);
+ 	r_Constant("m_p_prev", &binder_p_prev);
+diff --git a/src/Layers/xrRender/xrRender_console.cpp b/src/Layers/xrRender/xrRender_console.cpp
+index aa8636e..395b85a 100644
+--- a/src/Layers/xrRender/xrRender_console.cpp
++++ b/src/Layers/xrRender/xrRender_console.cpp
+@@ -284,6 +284,17 @@ Fvector4 heat_vision_args_2 = { .0f, .0f, .0f, .0f };
+ //crookr
+ int scope_fake_enabled = 1;
+ int scope_3D_fake_enabled = 0; // Redotix99: for 3D Shader Based Scopes
++
++int   ps_r_aet_lens_reflect = 0;
++int   ps_r_aet_lens_reflect_cadence = 4;
++float ps_r_aet_lens_reflect_fov = 120.0f;
++int   ps_r_aet_lens_reflect_probe = 1;
++int   ps_r_aet_lens_reflect_local_lights = 1;
++
++Fvector4 g_aet_refl_cam0 = {1.f, 0.f, 0.f, 1.7320508f};
++Fvector4 g_aet_refl_cam1 = {0.f, 1.f, 0.f, 0.f};
++Fvector4 g_aet_refl_cam2 = {0.f, 0.f, 1.f, 0.5625f};
++
+ //string32 scope_fake_texture = "wpn\\wpn_crosshair_pso1";
+ 
+ float ps_r2_ss_sunshafts_length = 1.f;
+@@ -1301,6 +1312,12 @@ void xrRender_initconsole()
+ 
+ 	CMD4(CCC_Integer, "r__fakescope", &scope_fake_enabled, 0, 1); //crookr for fake scope
+ 	CMD4(CCC_Integer, "r__3Dfakescope", &scope_3D_fake_enabled, 0, 1); // Redotix99: for 3D Shader Based Scopes
++	CMD4(CCC_Integer, "r__aet_lens_reflect", &ps_r_aet_lens_reflect, 0, 1);
++	CMD4(CCC_Integer, "r__aet_lens_reflect_cadence", &ps_r_aet_lens_reflect_cadence, 1, 8);
++	CMD4(CCC_Float, "r__aet_lens_reflect_fov", &ps_r_aet_lens_reflect_fov, 90.f, 140.f);
++	CMD4(CCC_Integer, "r__aet_lens_reflect_probe", &ps_r_aet_lens_reflect_probe, 0, 1);
++	CMD4(CCC_Integer, "r__aet_lens_reflect_local_lights", &ps_r_aet_lens_reflect_local_lights, 0, 1);
++
+ 
+ 	CMD4(CCC_Integer, "r__heatvision", &ps_r2_heatvision, 0, 1); //--DSR-- HeatVision
+ 	CMD3(CCC_Mask, "r2_terrain_z_prepass", &ps_r2_ls_flags, R2FLAG_TERRAIN_PREPASS); //Terrain Z Prepass @Zagolski
+diff --git a/src/Layers/xrRender/xrRender_console.h b/src/Layers/xrRender/xrRender_console.h
+index 749cc71..2a07b76 100644
+--- a/src/Layers/xrRender/xrRender_console.h
++++ b/src/Layers/xrRender/xrRender_console.h
+@@ -184,6 +184,19 @@ extern ECORE_API Fvector ps_r2_drops_control; // r2-only
+ extern ECORE_API int ps_r2_nightvision;
+ extern ECORE_API int scope_fake_enabled; //crookr
+ extern ECORE_API int scope_3D_fake_enabled; // Redotix99: for 3D Shader Based Scopes
++
++// Aeternelle: real front-objective reflected-cone scene capture.
++// First functional path: R4 / SDR / no-MSAA.
++extern ECORE_API int   ps_r_aet_lens_reflect;
++extern ECORE_API int   ps_r_aet_lens_reflect_cadence;
++extern ECORE_API float ps_r_aet_lens_reflect_fov;
++extern ECORE_API int   ps_r_aet_lens_reflect_probe;
++extern ECORE_API int   ps_r_aet_lens_reflect_local_lights;
++
++extern ECORE_API Fvector4 g_aet_refl_cam0; // right.xyz, tan(vertical FOV / 2)
++extern ECORE_API Fvector4 g_aet_refl_cam1; // up.xyz, live validity
++extern ECORE_API Fvector4 g_aet_refl_cam2; // forward.xyz, Device.fASPECT (H/W)
++
+ extern ECORE_API int ps_r2_heatvision;			//--DSR-- HeatVision
+ extern ECORE_API int heat_vision_cooldown;		//--DSR-- HeatVision
+ extern ECORE_API float heat_vision_cooldown_time;	//--DSR-- HeatVision
+diff --git a/src/Layers/xrRenderPC_R4/r2_R_calculate.cpp b/src/Layers/xrRenderPC_R4/r2_R_calculate.cpp
+index 10bc156..fb11959 100644
+--- a/src/Layers/xrRenderPC_R4/r2_R_calculate.cpp
++++ b/src/Layers/xrRenderPC_R4/r2_R_calculate.cpp
+@@ -30,7 +30,7 @@ void CRender::Calculate()
+ 	if (!vLastCameraPos.similar(Device.vCameraPosition, EPS_S))
+ 	{
+ 		CSector* pSector = (CSector*)detectSector(Device.vCameraPosition);
+-		if (pSector && (pSector != pLastSector))
++		if (pSector && (pSector != pLastSector) && !m_aetReflectionCapturePass)
+ 			g_pGamePersistent->OnSectorChanged(translateSector(pSector));
+ 
+ 		if (0 == pSector) pSector = pLastSector;
+diff --git a/src/Layers/xrRenderPC_R4/r4.cpp b/src/Layers/xrRenderPC_R4/r4.cpp
+index 965b953..1762322 100644
+--- a/src/Layers/xrRenderPC_R4/r4.cpp
++++ b/src/Layers/xrRenderPC_R4/r4.cpp
+@@ -579,6 +579,12 @@ void CRender::destroy()
+ 
+ void CRender::reset_begin()
+ {
++	g_aet_refl_cam1.w = 0.0f;
++	m_aetReflectionCapturePass = false;
++	m_aetLensVisibleThisFrame = false;
++	m_aetLensProbeValid = false;
++	m_aetLastLensVisibleFrame = 0;
++	m_aetCaptureLights.clear();
+ 	// Update incremental shadowmap-visibility solver
+ 	// BUG-ID: 10646
+ 	{
+@@ -936,8 +942,17 @@ void CRender::rmNormal()
+ // Construction/Destruction
+ //////////////////////////////////////////////////////////////////////
+ CRender::CRender()
+-	: m_bFirstFrameAfterReset(false)
++	: m_bFirstFrameAfterReset(false),
++	  m_aetReflectionCapturePass(false),
++	  m_aetLensVisibleThisFrame(false),
++	  m_aetLensProbeValid(false),
++	  m_aetLastCaptureFrame(0),
++	  m_aetLastLensVisibleFrame(0)
+ {
++	m_aetLensProbePosition.set(0.f, 0.f, 0.f);
++	m_aetLensProbeForward.set(0.f, 0.f, 1.f);
++	m_aetLensProbeUp.set(0.f, 1.f, 0.f);
++	Msg("* Aeternelle 3DSS reflected-cone v1.2 renderer hooks loaded");
+ 	init_cacades();
+ }
+ 
+diff --git a/src/Layers/xrRenderPC_R4/r4.h b/src/Layers/xrRenderPC_R4/r4.h
+index 16b3eb4..847d55b 100644
+--- a/src/Layers/xrRenderPC_R4/r4.h
++++ b/src/Layers/xrRenderPC_R4/r4.h
+@@ -195,6 +195,17 @@ public:
+ 
+ 	bool m_bMakeAsyncSS;
+ 	bool m_bFirstFrameAfterReset; // Determines weather the frame is the first after resetting device.
++
++	bool m_aetReflectionCapturePass;
++	bool m_aetLensVisibleThisFrame;
++	bool m_aetLensProbeValid;
++	u32  m_aetLastCaptureFrame;
++	u32  m_aetLastLensVisibleFrame;
++	Fvector m_aetLensProbePosition;
++	Fvector m_aetLensProbeForward;
++	Fvector m_aetLensProbeUp;
++	xr_vector<light*> m_aetCaptureLights;
++
+ 	xr_vector<sun::cascade> m_sun_cascades;
+ 
+ private:
+@@ -226,6 +237,14 @@ public:
+ 	void render_menu();
+ 	void render_rain();
+ 
++	void AetTryCaptureReflection();
++	void AetSetReflectionCamera(const Fvector& mainDir, const Fvector& mainTop);
++	void AetRestoreMainDepth();
++	void AetUpdateLensProbe();
++	void AetRenderCaptureLocalLights();
++	IC bool IsAetReflectionCapture() const { return m_aetReflectionCapturePass; }
++
++
+ 	void render_sun_cascade(u32 cascade_ind);
+ 	void init_cacades();
+ 	void render_sun_cascades();
+diff --git a/src/Layers/xrRenderPC_R4/r4_R_render.cpp b/src/Layers/xrRenderPC_R4/r4_R_render.cpp
+index 2b32381..2af0dc4 100644
+--- a/src/Layers/xrRenderPC_R4/r4_R_render.cpp
++++ b/src/Layers/xrRenderPC_R4/r4_R_render.cpp
+@@ -5,6 +5,7 @@
+ #include "../../xrEngine/xr_object.h"
+ 
+ #include "../xrRender/QueryHelper.h"
++#include "../xrRender/xrRender_console.h"
+ 
+ IC bool pred_sp_sort(ISpatial* _1, ISpatial* _2)
+ {
+@@ -41,7 +42,7 @@ void CRender::render_main(Fmatrix& m_ViewProjection, bool _fportals)
+ 			// Determine visibility for dynamic part of scene
+ 			set_Object(0);
+ 			u32 uID_LTRACK = 0xffffffff;
+-			if (phase == PHASE_NORMAL)
++			if (phase == PHASE_NORMAL && !m_aetReflectionCapturePass)
+ 			{
+ 				uLastLTRACK ++;
+ 				if (lstRenderables.size()) uID_LTRACK = uLastLTRACK % lstRenderables.size();
+@@ -107,8 +108,21 @@ void CRender::render_main(Fmatrix& m_ViewProjection, bool _fportals)
+ 				float lod = L->get_LOD();
+ 				if (lod > EPS_L)
+ 				{
+-					vis_data& vis = L->get_homdata();
+-					if (HOM.visible(vis)) Lights.add_light(L);
++					if (m_aetReflectionCapturePass && phase == PHASE_NORMAL)
++					{
++						// Same-frame recursion makes CLight_DB::add_light() reject lights
++						// because frame_render already equals Device.dwFrame. Keep a
++						// capture-local list instead; it is accumulated without OCCQ or
++						// shadow-map generation later in this pass. render_main() can be
++						// entered more than once, so keep the list unique.
++						if (std::find(m_aetCaptureLights.begin(), m_aetCaptureLights.end(), L) == m_aetCaptureLights.end())
++							m_aetCaptureLights.push_back(L);
++					}
++					else
++					{
++						vis_data& vis = L->get_homdata();
++						if (HOM.visible(vis)) Lights.add_light(L);
++					}
+ 				}
+ 				continue ;
+ 			}
+@@ -125,16 +139,22 @@ void CRender::render_main(Fmatrix& m_ViewProjection, bool _fportals)
+ 					IRenderable* renderable = spatial->dcast_Renderable();
+ 					VERIFY(renderable);
+ 
+-					// Occlusion
+-					//	casting is faster then using getVis method
+-					vis_data& v_orig = ((dxRender_Visual*)renderable->renderable.visual)->vis;
+-					vis_data v_copy = v_orig;
+-					v_copy.box.xform(renderable->renderable.xform);
+-					BOOL bVisible = HOM.visible(v_copy);
+-					v_orig.marker = v_copy.marker;
+-					v_orig.accept_frame = v_copy.accept_frame;
+-					v_orig.hom_frame = v_copy.hom_frame;
+-					v_orig.hom_tested = v_copy.hom_tested;
++					// Occlusion. The secondary lens pass deliberately skips HOM: besides
++					// HOM being disabled for that pass, copying capture visibility markers
++					// back into the shared visual would contaminate the main-camera state.
++					BOOL bVisible = TRUE;
++					if (!m_aetReflectionCapturePass)
++					{
++						// casting is faster then using getVis method
++						vis_data& v_orig = ((dxRender_Visual*)renderable->renderable.visual)->vis;
++						vis_data v_copy = v_orig;
++						v_copy.box.xform(renderable->renderable.xform);
++						bVisible = HOM.visible(v_copy);
++						v_orig.marker = v_copy.marker;
++						v_orig.accept_frame = v_copy.accept_frame;
++						v_orig.hom_frame = v_copy.hom_frame;
++						v_orig.hom_tested = v_copy.hom_tested;
++					}
+ 					if (!bVisible) break; // exit loop on frustums
+ 
+ 					// Rendering
+@@ -145,7 +165,7 @@ void CRender::render_main(Fmatrix& m_ViewProjection, bool _fportals)
+ 				break; // exit loop on frustums
+ 			}
+ 		}
+-		if (g_pGameLevel && (phase == PHASE_NORMAL))
++		if (g_pGameLevel && (phase == PHASE_NORMAL) && !m_aetReflectionCapturePass)
+ 		{
+ 			g_hud->Render_Last(); // HUD
+ 			if (g_hud->RenderActiveItemUIQuery())
+@@ -157,7 +177,7 @@ void CRender::render_main(Fmatrix& m_ViewProjection, bool _fportals)
+ 	else
+ 	{
+ 		set_Object(0);
+-		if (g_pGameLevel && (phase == PHASE_NORMAL))
++		if (g_pGameLevel && (phase == PHASE_NORMAL) && !m_aetReflectionCapturePass)
+ 		{
+ 			g_hud->Render_Last(); // HUD
+ 			if (g_hud->RenderActiveItemUIQuery())
+@@ -228,6 +248,17 @@ void CRender::Render()
+ 
+ 	rmNormal();
+ 
++	if (!m_aetReflectionCapturePass)
++	{
++		m_aetLensVisibleThisFrame = false;
++		m_aetLensProbeValid = false;
++
++		// Do not resurrect a stale capture after the scope was hidden for one
++		// or more frames (weapon swap, reload animation, level transition).
++		if (m_aetLastLensVisibleFrame + 1 < Device.dwFrame)
++			g_aet_refl_cam1.w = 0.0f;
++	}
++
+ 	bool _menu_pp = g_pGamePersistent ? g_pGamePersistent->OnRenderPPUI_query() : false;
+ 	if (_menu_pp)
+ 	{
+@@ -263,7 +294,11 @@ void CRender::Render()
+ 	// HOM
+ 	ViewBase.CreateFromMatrix(Device.mFullTransform, FRUSTUM_P_LRTB + FRUSTUM_P_FAR);
+ 	View = 0;
+-	if (!ps_r2_ls_flags.test(R2FLAG_EXP_MT_CALC))
++	if (m_aetReflectionCapturePass)
++	{
++		HOM.Disable();
++	}
++	else if (!ps_r2_ls_flags.test(R2FLAG_EXP_MT_CALC))
+ 	{
+ 		HOM.Enable();
+ 		HOM.Render(ViewBase);
+@@ -302,7 +337,7 @@ void CRender::Render()
+ 	//*******
+ 	// Sync point
+ 	Device.Statistic->RenderDUMP_Wait_S.Begin();
+-	if (ps_r2_qsync)
++	if (!m_aetReflectionCapturePass && ps_r2_qsync)
+ 	{
+ 		CTimer T;
+ 		T.Start();
+@@ -320,9 +355,11 @@ void CRender::Render()
+ 		}
+ 	}
+ 	Device.Statistic->RenderDUMP_Wait_S.End();
+-	q_sync_count = (q_sync_count + 1) % HW.Caps.iGPUNum;
++	if (!m_aetReflectionCapturePass)
++		q_sync_count = (q_sync_count + 1) % HW.Caps.iGPUNum;
+ 	//CHK_DX										(q_sync_point[q_sync_count]->Issue(D3DISSUE_END));
+-	CHK_DX(EndQuery(q_sync_point[q_sync_count]));
++	if (!m_aetReflectionCapturePass)
++		CHK_DX(EndQuery(q_sync_point[q_sync_count]));
+ 
+ 	//******* Main calc - DEFERRER RENDERER
+ 	// Main calc
+@@ -349,7 +386,7 @@ void CRender::Render()
+ 		HW.pContext->ClearDepthStencilView(HW.pBaseZB, D3D_CLEAR_DEPTH, 1.0f, 0);
+ 	}*/
+ 
+-	if (RImplementation.o.ssfx_motionvectors)
++	if (RImplementation.o.ssfx_motionvectors && !m_aetReflectionCapturePass)
+ 	{
+ 		Target->u_setrt(Device.dwWidth, Device.dwHeight, 0, 0, Target->rt_ssfx_motion_vectors->pRT, 0);
+ 
+@@ -380,10 +417,10 @@ void CRender::Render()
+ 		PIX_EVENT(DEFER_PART0_NO_SPLIT);
+ 		// level, DO NOT SPLIT
+ 		Target->phase_scene_begin();
+-		r_dsgraph_render_hud();
++		if (!m_aetReflectionCapturePass) r_dsgraph_render_hud();
+ 		r_dsgraph_render_graph(0);
+ 		r_dsgraph_render_lods(true, true);
+-		if (Details) Details->Render();
++		if (Details && !m_aetReflectionCapturePass) Details->Render();
+ 		if (ps_r2_ls_flags.test(R2FLAG_TERRAIN_PREPASS)) r_dsgraph_render_landscape(1, true);
+ 		Target->phase_scene_end();
+ 	}
+@@ -397,7 +434,7 @@ void CRender::Render()
+ 	}
+ 
+ 	//  Redotix99: for 3D Shader Based Scopes 	
+-	if (scope_3D_fake_enabled)
++	if (scope_3D_fake_enabled && !m_aetReflectionCapturePass)
+ 	{
+ 		ID3D11Resource* zbuffer_res;
+ 		HW.pBaseZB->GetResource(&zbuffer_res);
+@@ -405,54 +442,56 @@ void CRender::Render()
+ 	}
+ 
+ 	//******* Occlusion testing of volume-limited light-sources
+-	Target->phase_occq();
+-	LP_normal.clear();
+-	LP_pending.clear();
+-	if (RImplementation.o.dx10_msaa)
+-		RCache.set_ZB(RImplementation.Target->rt_MSAADepth->pZRT);
+-	{
+-		PIX_EVENT(DEFER_TEST_LIGHT_VIS);
+-		// perform tests
+-		u32 count = 0;
+-		light_Package& LP = Lights.package;
+-
+-		// stats
+-		stats.l_shadowed = LP.v_shadowed.size();
+-		stats.l_unshadowed = LP.v_point.size() + LP.v_spot.size();
+-		stats.l_total = stats.l_shadowed + stats.l_unshadowed;
+-
+-		// perform tests
+-		count = _max(count, LP.v_point.size());
+-		count = _max(count, LP.v_spot.size());
+-		count = _max(count, LP.v_shadowed.size());
+-		for (u32 it = 0; it < count; it++)
++	if (!m_aetReflectionCapturePass)
++	{
++		Target->phase_occq();
++		LP_normal.clear();
++		LP_pending.clear();
++		if (RImplementation.o.dx10_msaa)
++			RCache.set_ZB(RImplementation.Target->rt_MSAADepth->pZRT);
+ 		{
+-			if (it < LP.v_point.size())
++			PIX_EVENT(DEFER_TEST_LIGHT_VIS);
++			// perform tests
++			u32 count = 0;
++			light_Package& LP = Lights.package;
++
++			// stats
++			stats.l_shadowed = LP.v_shadowed.size();
++			stats.l_unshadowed = LP.v_point.size() + LP.v_spot.size();
++			stats.l_total = stats.l_shadowed + stats.l_unshadowed;
++
++			// perform tests
++			count = _max(count, LP.v_point.size());
++			count = _max(count, LP.v_spot.size());
++			count = _max(count, LP.v_shadowed.size());
++			for (u32 it = 0; it < count; it++)
+ 			{
+-				light* L = LP.v_point[it];
+-				L->vis_prepare();
+-				if (L->vis.pending) LP_pending.v_point.push_back(L);
+-				else LP_normal.v_point.push_back(L);
+-			}
+-			if (it < LP.v_spot.size())
+-			{
+-				light* L = LP.v_spot[it];
+-				L->vis_prepare();
+-				if (L->vis.pending) LP_pending.v_spot.push_back(L);
+-				else LP_normal.v_spot.push_back(L);
+-			}
+-			if (it < LP.v_shadowed.size())
+-			{
+-				light* L = LP.v_shadowed[it];
+-				L->vis_prepare();
+-				if (L->vis.pending) LP_pending.v_shadowed.push_back(L);
+-				else LP_normal.v_shadowed.push_back(L);
++				if (it < LP.v_point.size())
++				{
++					light* L = LP.v_point[it];
++					L->vis_prepare();
++					if (L->vis.pending) LP_pending.v_point.push_back(L);
++					else LP_normal.v_point.push_back(L);
++				}
++				if (it < LP.v_spot.size())
++				{
++					light* L = LP.v_spot[it];
++					L->vis_prepare();
++					if (L->vis.pending) LP_pending.v_spot.push_back(L);
++					else LP_normal.v_spot.push_back(L);
++				}
++				if (it < LP.v_shadowed.size())
++				{
++					light* L = LP.v_shadowed[it];
++					L->vis_prepare();
++					if (L->vis.pending) LP_pending.v_shadowed.push_back(L);
++					else LP_normal.v_shadowed.push_back(L);
++				}
+ 			}
+ 		}
++		LP_normal.sort();
++		LP_pending.sort();
+ 	}
+-	LP_normal.sort();
+-	LP_pending.sort();
+-
+ 	//******* Main render :: PART-1 (second)
+ 	if (split_the_scene_to_minimize_wait)
+ 	{
+@@ -480,9 +519,9 @@ void CRender::Render()
+ 
+ 		// level
+ 		Target->phase_scene_begin();
+-		r_dsgraph_render_hud();
++		if (!m_aetReflectionCapturePass) r_dsgraph_render_hud();
+ 		r_dsgraph_render_lods(true, true);
+-		if (Details) Details->Render();
++		if (Details && !m_aetReflectionCapturePass) Details->Render();
+ 		if (ps_r2_ls_flags.test(R2FLAG_TERRAIN_PREPASS)) r_dsgraph_render_landscape(1, true);
+ 		Target->phase_scene_end();
+ 	}
+@@ -497,6 +536,7 @@ void CRender::Render()
+ 	}
+ 
+ 	// Update incremental shadowmap-visibility solver
++	if (!m_aetReflectionCapturePass)
+ 	{
+ 		PIX_EVENT(DEFER_FLUSH_OCCLUSION);
+ 		u32 it = 0;
+@@ -523,7 +563,7 @@ void CRender::Render()
+ 	}
+ 
+ 	//	TODO: DX10: Implement DX10 rain.
+-	if (ps_r2_ls_flags.test(R3FLAG_DYN_WET_SURF))
++	if (ps_r2_ls_flags.test(R3FLAG_DYN_WET_SURF) && !m_aetReflectionCapturePass)
+ 	{
+ 		PIX_EVENT(DEFER_RAIN);
+ 		render_rain();
+@@ -534,7 +574,7 @@ void CRender::Render()
+ 		{
+ 			static Fmatrix mm_saved_viewproj;
+ 
+-			if (!Device.m_SecondViewport.IsSVPFrame())
++			if (!Device.m_SecondViewport.IsSVPFrame() && !m_aetReflectionCapturePass)
+ 			{
+ 				Target->Matrix_previous.mul(mm_saved_viewproj, Device.mInvView);
+ 				Target->Matrix_current.set(Device.mProject);
+@@ -542,7 +582,7 @@ void CRender::Render()
+ 			}
+ 		}
+ 
+-		if (RImplementation.o.ssfx_sss && !Device.m_SecondViewport.IsSVPFrame())
++		if (RImplementation.o.ssfx_sss && !Device.m_SecondViewport.IsSVPFrame() && !m_aetReflectionCapturePass)
+ 		{
+ 			static bool sss_rendered, sss_extended_rendered;
+ 
+@@ -615,7 +655,7 @@ void CRender::Render()
+ 		RImplementation.r_dsgraph_render_emissive(RImplementation.o.ssfx_bloom ? false : true);
+ 	}
+ 
+-	if (RImplementation.o.ssfx_bloom)
++	if (RImplementation.o.ssfx_bloom && !m_aetReflectionCapturePass)
+ 	{
+ 		// Render Emissive on `rt_ssfx_bloom_emissive`
+ 		FLOAT ColorRGBA[4] = { 0,0,0,0 };
+@@ -629,17 +669,21 @@ void CRender::Render()
+ 		PIX_EVENT(DEFER_LIGHT_NO_OCCQ);
+ 		Target->phase_accumulator();
+ 		HOM.Disable();
+-		render_lights(LP_normal);
++		if (!m_aetReflectionCapturePass)
++			render_lights(LP_normal);
++		else
++			AetRenderCaptureLocalLights();
+ 	}
+ 
+ 	// Lighting, dependant on OCCQ
++	if (!m_aetReflectionCapturePass)
+ 	{
+ 		PIX_EVENT(DEFER_LIGHT_OCCQ);
+ 		render_lights(LP_pending);
+ 	}
+ 
+ 	{
+-		if (RImplementation.o.ssfx_volumetric)
++		if (RImplementation.o.ssfx_volumetric && !m_aetReflectionCapturePass)
+ 			Target->phase_ssfx_volumetric_blur();
+ 	}
+ 
+@@ -649,10 +693,305 @@ void CRender::Render()
+ 		Target->phase_combine();
+ 	}
+ 
+-	if (Details)
++	if (Details && !m_aetReflectionCapturePass)
+ 		Details->details_clear();
+ 
+ 	VERIFY(0 == mapDistort.size() + mapHUDDistort.size());
++
++	if (!m_aetReflectionCapturePass)
++		AetTryCaptureReflection();
++}
++
++
++namespace
++{
++struct SAetSavedCamera
++{
++	Fmatrix view, invView, project, invProject, full, invFull, fullHud;
++	Fvector pos, dir, top, right;
++	float fov, aspect;
++};
++
++static void AetSaveCamera(SAetSavedCamera& s)
++{
++	s.view = Device.mView;
++	s.invView = Device.mInvView;
++	s.project = Device.mProject;
++	s.invProject = Device.mInvProject;
++	s.full = Device.mFullTransform;
++	s.invFull = Device.mInvFullTransform;
++	s.fullHud = Device.mFullTransformHud;
++	s.pos = Device.vCameraPosition;
++	s.dir = Device.vCameraDirection;
++	s.top = Device.vCameraTop;
++	s.right = Device.vCameraRight;
++	s.fov = Device.fFOV;
++	s.aspect = Device.fASPECT;
++}
++
++static void AetRestoreCamera(const SAetSavedCamera& s)
++{
++	Device.mView = s.view;
++	Device.mInvView = s.invView;
++	Device.mProject = s.project;
++	Device.mInvProject = s.invProject;
++	Device.mFullTransform = s.full;
++	Device.mInvFullTransform = s.invFull;
++	Device.mFullTransformHud = s.fullHud;
++	Device.vCameraPosition = s.pos;
++	Device.vCameraDirection = s.dir;
++	Device.vCameraTop = s.top;
++	Device.vCameraRight = s.right;
++	Device.fFOV = s.fov;
++	Device.fASPECT = s.aspect;
++
++	RCache.set_xform_view(Device.mView);
++	RCache.set_xform_project(Device.mProject);
++}
++}
++
++void CRender::AetSetReflectionCamera(const Fvector& mainDir, const Fvector& mainTop)
++{
++	Fvector forward;
++	forward.set(mainDir).mul(-1.f).normalize_safe();
++
++	Fvector right;
++	right.crossproduct(mainTop, forward).normalize_safe();
++
++	Fvector up;
++	up.crossproduct(forward, right).normalize_safe();
++
++	Device.vCameraDirection.set(forward);
++	Device.vCameraTop.set(up);
++	Device.vCameraRight.set(right);
++	Device.fFOV = ps_r_aet_lens_reflect_fov;
++
++	Device.mView.build_camera_dir(Device.vCameraPosition, forward, up);
++	Device.mInvView.invert(Device.mView);
++
++	Device.mProject.build_projection(
++		deg2rad(Device.fFOV),
++		Device.fASPECT,
++		VIEWPORT_NEAR,
++		g_pGamePersistent->Environment().CurrentEnv->far_plane);
++	Device.mInvProject.invert(Device.mProject);
++
++	Device.mFullTransform.mul(Device.mProject, Device.mView);
++	Device.mInvFullTransform.invert(Device.mFullTransform);
++	Device.mFullTransformHud.set(Device.mFullTransform);
++
++	RCache.set_xform_view(Device.mView);
++	RCache.set_xform_project(Device.mProject);
++
++	// build_projection() uses VERTICAL FOV and H/W aspect.
++	const float tanHalfVertical = tanf(deg2rad(Device.fFOV * 0.5f));
++	g_aet_refl_cam0.set(right.x, right.y, right.z, tanHalfVertical);
++	g_aet_refl_cam1.set(up.x, up.y, up.z, 0.0f);
++	g_aet_refl_cam2.set(forward.x, forward.y, forward.z, Device.fASPECT);
++}
++
++void CRender::AetRestoreMainDepth()
++{
++	if (!Target || !Target->rt_tempzb)
++		return;
++
++	ID3D11Resource* mainDepth = nullptr;
++	HW.pBaseZB->GetResource(&mainDepth);
++	if (mainDepth)
++	{
++		HW.pContext->CopyResource(mainDepth, Target->rt_tempzb->pSurface);
++		_RELEASE(mainDepth);
++	}
++}
++
++void CRender::AetUpdateLensProbe()
++{
++	m_aetLensProbeValid = false;
++
++	float bestSSA = -1.f;
++	for (R_dsgraph::mapScopeHUD_T_Node* node = mapScopeHUDSorted.begin(); node != mapScopeHUDSorted.end(); ++node)
++	{
++		if (!node->val.pVisual || node->val.ssa < bestSSA)
++			continue;
++
++		Fvector worldCenter;
++		node->val.Matrix.transform_tiny(worldCenter, node->val.pVisual->getVisData().sphere.P);
++		if (!_valid(worldCenter))
++			continue;
++
++		Fvector forward = node->val.Matrix.k;
++		Fvector up = node->val.Matrix.j;
++		if (forward.square_magnitude() < EPS_S || up.square_magnitude() < EPS_S)
++			continue;
++		forward.normalize();
++		up.normalize();
++
++		// HUD model conventions are not perfectly uniform across addons. Pick the
++		// signs that face roughly the same way as the player's main view, then
++		// orthogonalize the lens up-axis so weapon roll is preserved in capture.
++		if (forward.dotproduct(Device.vCameraDirection) < 0.f)
++			forward.mul(-1.f);
++		if (up.dotproduct(Device.vCameraTop) < 0.f)
++			up.mul(-1.f);
++		up.mad(up, forward, -up.dotproduct(forward));
++		if (up.square_magnitude() < EPS_S)
++			continue;
++		up.normalize();
++
++		bestSSA = node->val.ssa;
++		m_aetLensProbePosition.set(worldCenter);
++		m_aetLensProbeForward.set(forward);
++		m_aetLensProbeUp.set(up);
++		m_aetLensProbeValid = true;
++	}
++}
++
++void CRender::AetRenderCaptureLocalLights()
++{
++	if (!ps_r_aet_lens_reflect_local_lights || m_aetCaptureLights.empty())
++		return;
++
++	// No OCCQ and no secondary shadow maps: the lens is tiny on screen, so a
++	// shadowless local-light approximation is both stable and materially better
++	// than the sun-only v1.1 capture. Original light flags are restored per draw.
++	for (light* L : m_aetCaptureLights)
++	{
++		if (!L || !L->flags.bActive || L->flags.bStatic || L->get_hud_mode())
++			continue;
++
++		if (L->flags.type != IRender_Light::POINT && L->flags.type != IRender_Light::SPOT)
++			continue;
++
++		const bool savedShadow = !!L->flags.bShadow;
++		const bool savedVolumetric = !!L->flags.bVolumetric;
++		L->flags.bShadow = FALSE;
++		L->flags.bVolumetric = FALSE;
++
++		if (L->flags.type == IRender_Light::POINT)
++		{
++			Target->accum_point(L);
++		}
++		else
++		{
++			LR.compute_xf_spot(L);
++			Target->accum_spot(L);
++		}
++
++		L->flags.bShadow = savedShadow;
++		L->flags.bVolumetric = savedVolumetric;
++	}
++}
++
++void CRender::AetTryCaptureReflection()
++{
++	if (!ps_r_aet_lens_reflect)
++	{
++		g_aet_refl_cam1.w = 0.0f;
++		return;
++	}
++
++	if (!scope_3D_fake_enabled || !m_aetLensVisibleThisFrame)
++		return;
++
++	// First functional build deliberately matches the user's current runtime:
++	// no MSAA, SDR. Do not silently run an unverified resource-copy path.
++	if (o.dx10_msaa || o.dx11_hdr10)
++	{
++		g_aet_refl_cam1.w = 0.0f;
++		return;
++	}
++
++	const u32 cadence = _max(1, ps_r_aet_lens_reflect_cadence);
++	if ((Device.dwFrame % cadence) != 0 || m_aetLastCaptureFrame == Device.dwFrame)
++		return;
++
++	if (!Target || !Target->rt_tempzb || !Target->rt_aet_lens_reflection ||
++		!g_pGamePersistent || !g_pGamePersistent->Environment().CurrentEnv)
++	{
++		g_aet_refl_cam1.w = 0.0f;
++		return;
++	}
++
++	// Back up the finished main depth. The secondary render reuses HW.pBaseZB.
++	ID3D11Resource* mainDepth = nullptr;
++	HW.pBaseZB->GetResource(&mainDepth);
++	if (!mainDepth)
++	{
++		g_aet_refl_cam1.w = 0.0f;
++		return;
++	}
++	HW.pContext->CopyResource(Target->rt_tempzb->pSurface, mainDepth);
++	_RELEASE(mainDepth);
++
++	SAetSavedCamera saved;
++	AetSaveCamera(saved);
++	CSector* savedSector = pLastSector;
++	Fvector savedLastCameraPos = vLastCameraPos;
++
++	m_aetReflectionCapturePass = true;
++	m_aetLastCaptureFrame = Device.dwFrame;
++	m_aetCaptureLights.clear();
++
++	// v1.2: capture from the visible 3DSS lens rather than from the actor eye.
++	// The lens shader node carries the exact HUD/world transform of the rendered
++	// objective sub-visual; its visual sphere center is a robust per-scope probe.
++	Fvector captureDir = saved.dir;
++	Fvector captureTop = saved.top;
++	if (ps_r_aet_lens_reflect_probe && m_aetLensProbeValid)
++	{
++		const float probeDistance = saved.pos.distance_to(m_aetLensProbePosition);
++		if (probeDistance < 2.0f)
++		{
++			Device.vCameraPosition.set(m_aetLensProbePosition);
++
++			// Put the virtual camera a couple of centimetres in front of the
++			// objective to avoid starting exactly inside lens/tube geometry.
++			Device.vCameraPosition.mad(m_aetLensProbePosition, m_aetLensProbeForward, 0.02f);
++
++			// Follow weapon sway only when the model axis is plausibly aligned
++			// with the real view direction; otherwise retain the main camera axis.
++			if (_abs(m_aetLensProbeForward.dotproduct(saved.dir)) > 0.70f)
++			{
++				captureDir.set(m_aetLensProbeForward);
++				captureTop.set(m_aetLensProbeUp);
++			}
++		}
++	}
++
++	AetSetReflectionCamera(captureDir, captureTop);
++
++	// Same-frame recursion must own a fresh light accumulator. Without this,
++	// phase_accumulator() sees the primary frame mark and reuses primary lighting.
++	Target->aet_force_accumulator_clear();
++
++	// Recalculate camera-dependent SSA thresholds for the wide secondary view.
++	// Sector changes are renderer-local during capture and restored afterwards.
++	Calculate();
++
++	// Recursive Render() is capture-gated. phase_combine() copies the
++	// pre-postprocess LDR scene (rt_Generic_0) to $user$aet_lens_reflection
++	// immediately after forward geometry, then returns before volumetrics,
++	// bloom, distortion, sunshafts, LUT/TAA/DOF and backbuffer work.
++	Render();
++
++	// Calculate() is allowed to detect a different sector for the objective
++	// probe, but that renderer-only sector must never leak into gameplay state.
++	pLastSector = savedSector;
++	vLastCameraPos.set(savedLastCameraPos);
++
++	m_aetReflectionCapturePass = false;
++	m_aetCaptureLights.clear();
++
++	AetRestoreCamera(saved);
++	AetRestoreMainDepth();
++
++	// Restore main-view camera-dependent globals and sun position for later UI/debug.
++	Calculate();
++
++	// Capture exits with rt_Color bound; CLevel::OnRender still draws UI afterward.
++	Target->u_setrt(Device.dwWidth, Device.dwHeight, HW.pBaseRT, NULL, NULL, HW.pBaseZB);
++	RCache.set_xform_view(Device.mView);
++	RCache.set_xform_project(Device.mProject);
+ }
+ 
+ void CRender::render_forward()
+@@ -682,6 +1021,13 @@ void CRender::render_forward()
+ void CRender::render_Reticle()
+ {
+ 	VERIFY(0 == mapDistort.size() + mapHUDDistort.size());
++
++	if (!m_aetReflectionCapturePass && mapScopeHUDSorted.size() > 0)
++	{
++		m_aetLensVisibleThisFrame = true;
++		m_aetLastLensVisibleFrame = Device.dwFrame;
++		AetUpdateLensProbe();
++	}
+ 	RImplementation.o.distortion = RImplementation.o.distortion_enabled;
+ 
+ 	r_dsgraph_render_ScopeSorted();
+diff --git a/src/Layers/xrRenderPC_R4/r4_rendertarget.cpp b/src/Layers/xrRenderPC_R4/r4_rendertarget.cpp
+index 7ec9947..ead025b 100644
+--- a/src/Layers/xrRenderPC_R4/r4_rendertarget.cpp
++++ b/src/Layers/xrRenderPC_R4/r4_rendertarget.cpp
+@@ -540,6 +540,14 @@ CRenderTarget::CRenderTarget()
+ 
+ 		rt_fakescope.create(r2_RT_scopert, w, h, D3DFMT_A8R8G8B8, 1); //crookr fakescope
+ 
++		// Aeternelle v1.2 uses full viewport size so rt_Generic_0 -> capture is an exact CopyResource.
++		rt_aet_lens_reflection.create(
++			"$user$aet_lens_reflection",
++			w, h,
++			D3DFMT_A8R8G8B8,
++			1);
++
++
+ 		//--DSR-- HeatVision_start
+ 		rt_Heat.create(r2_RT_heat, w, h, D3DFMT_A8R8G8B8, SampleCount);
+ 		//--DSR-- HeatVision_end
+@@ -1442,6 +1450,14 @@ CRenderTarget::~CRenderTarget()
+ 	}
+ }
+ 
++void CRenderTarget::aet_force_accumulator_clear()
++{
++	// A reflection capture recursively renders inside the same Device.dwFrame.
++	// phase_accumulator() normally clears only once per frame, so without this
++	// the secondary view inherits the primary camera's light accumulator.
++	dwAccumulatorClearMark = u32(-1);
++}
++
+ void CRenderTarget::reset_light_marker(bool bResetStencil)
+ {
+ 	dwLightMarkerID = 5;
+diff --git a/src/Layers/xrRenderPC_R4/r4_rendertarget.h b/src/Layers/xrRenderPC_R4/r4_rendertarget.h
+index 16c93f6..5e72d46 100644
+--- a/src/Layers/xrRenderPC_R4/r4_rendertarget.h
++++ b/src/Layers/xrRenderPC_R4/r4_rendertarget.h
+@@ -125,6 +125,7 @@ public:
+ 	resptr_core<CRT, resptrcode_crt> rt_Generic_temp;
+ 
+ 	ref_rt rt_secondVP;	// 32bit		(r,g,b,a) --//#SM+#-- +SecondVP+
++	ref_rt rt_aet_lens_reflection; // Aeternelle reflected-cone scene
+ 
+ 
+ 	ref_rt rt_fakescope;	// crookr fakescope
+@@ -527,6 +528,7 @@ public:
+ 	//	Don't clear when render for the first time
+ 	void reset_light_marker(bool bResetStencil = false);
+ 	void increment_light_marker();
++	void aet_force_accumulator_clear();
+ 
+ 	void DoAsyncScreenshot();
+ 
+diff --git a/src/Layers/xrRenderPC_R4/r4_rendertarget_phase_bloom.cpp b/src/Layers/xrRenderPC_R4/r4_rendertarget_phase_bloom.cpp
+index 084c83f..eab9f4f 100644
+--- a/src/Layers/xrRenderPC_R4/r4_rendertarget_phase_bloom.cpp
++++ b/src/Layers/xrRenderPC_R4/r4_rendertarget_phase_bloom.cpp
+@@ -143,8 +143,9 @@ void CRenderTarget::phase_bloom()
+ 		RCache.Render(D3DPT_TRIANGLELIST, Offset, 0, 4, 0, 2);
+ 	}
+ 
+-	// Capture luminance values
+-	phase_luminance();
++	// Only the real main viewport owns eye adaptation.
++	if (!RImplementation.IsAetReflectionCapture())
++		phase_luminance();
+ 
+ 	if (RImplementation.o.ssfx_bloom)
+ 		return;
+diff --git a/src/Layers/xrRenderPC_R4/r4_rendertarget_phase_combine.cpp b/src/Layers/xrRenderPC_R4/r4_rendertarget_phase_combine.cpp
+index 7dc1a54..ae153b5 100644
+--- a/src/Layers/xrRenderPC_R4/r4_rendertarget_phase_combine.cpp
++++ b/src/Layers/xrRenderPC_R4/r4_rendertarget_phase_combine.cpp
+@@ -84,7 +84,7 @@ void CRenderTarget::phase_combine()
+ 	{
+ 		static Fmatrix m_saved_viewproj;
+ 
+-		if (!Device.m_SecondViewport.IsSVPFrame())
++		if (!Device.m_SecondViewport.IsSVPFrame() && !RImplementation.IsAetReflectionCapture())
+ 		{
+ 			static Fvector3 saved_position;
+ 			Position_previous.set(saved_position);
+@@ -100,7 +100,7 @@ void CRenderTarget::phase_combine()
+ 
+ 	{
+ 		// Disable when rendering SecondViewport
+-		if (!Device.m_SecondViewport.IsSVPFrame())
++		if (!Device.m_SecondViewport.IsSVPFrame() && !RImplementation.IsAetReflectionCapture())
+ 		{
+ 			// Clear RT
+ 			FLOAT ColorRGBA[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+@@ -328,14 +328,14 @@ void CRenderTarget::phase_combine()
+ 	else
+ 		HW.pContext->CopyResource(rt_Generic_temp->pTexture->surface_get(), rt_Generic_0_r->pTexture->surface_get());
+ 
+-	if (RImplementation.o.ssfx_ssr && !Device.m_SecondViewport.IsSVPFrame())
++	if (RImplementation.o.ssfx_ssr && !Device.m_SecondViewport.IsSVPFrame() && !RImplementation.IsAetReflectionCapture())
+ 	{
+ 		ssfx_PrevPos_Requiered = true;
+ 		phase_ssfx_ssr(); // [SSFX] - New SSR Phase
+ 	}
+ 
+ 	// [SSFX] - Water SSR rendering
+-	if (RImplementation.o.ssfx_water && !Device.m_SecondViewport.IsSVPFrame())
++	if (RImplementation.o.ssfx_water && !Device.m_SecondViewport.IsSVPFrame() && !RImplementation.IsAetReflectionCapture())
+ 	{
+ 		FLOAT ColorRGBA[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+ 		HW.pContext->ClearRenderTargetView(rt_ssfx_temp->pRT, ColorRGBA);
+@@ -378,6 +378,7 @@ void CRenderTarget::phase_combine()
+ 	RCache.set_xform_world(Fidentity);
+ 	RImplementation.r_dsgraph_render_water();
+ 	
++	if (!RImplementation.IsAetReflectionCapture())
+ 	{
+ 		if (RImplementation.o.ssfx_rain)
+ 		{
+@@ -392,7 +393,7 @@ void CRenderTarget::phase_combine()
+ 		g_pGamePersistent->Environment().RenderLast(); // rain/thunder-bolts
+ 	}
+ 
+-	/*if (ssfx_PrevPos_Requiered)
++	/*if (ssfx_PrevPos_Requiered && !RImplementation.IsAetReflectionCapture())
+ 		HW.pContext->CopyResource(rt_ssfx_prevPos->pTexture->surface_get(), rt_Position->pTexture->surface_get());*/
+ 
+ 	// Update rt_Generic_temp ( rain and water )
+@@ -421,7 +422,28 @@ void CRenderTarget::phase_combine()
+ 		//	TODO: DX10: CHeck this!
+ 		//g_pGamePersistent->Environment().RenderClouds	();
+ 		RImplementation.render_forward();
+-		if (g_pGamePersistent) g_pGamePersistent->OnRenderPPUI_main(); // PP-UI
++		if (g_pGamePersistent && !RImplementation.IsAetReflectionCapture()) g_pGamePersistent->OnRenderPPUI_main(); // PP-UI
++	}
++
++	// Aeternelle v1.2: capture the reflected camera before the heavyweight
++	// postprocess tail. At this point rt_Generic_0 contains combine_1 +
++	// sky/clouds + water + forward geometry. The reflection pass deliberately
++	// excludes volumetric combine, bloom, distortion, sunshafts, SSFX fog,
++	// lens post-effects, AA and exposure/history updates.
++	if (RImplementation.IsAetReflectionCapture())
++	{
++		HW.pContext->CopyResource(
++			rt_aet_lens_reflection->pSurface,
++			rt_Generic_0->pTexture->surface_get());
++
++		// Distortion draw-lists are capture-local and would otherwise trip the
++		// Render() end-of-pass invariant because the reflection pass exits here.
++		RImplementation.mapDistort.clear();
++		RImplementation.mapHUDDistort.clear();
++
++		// Publish only after the scene image has reached the dedicated target.
++		g_aet_refl_cam1.w = 1.0f;
++		return;
+ 	}
+ 
+ 	//	Igor: for volumetric lights
+@@ -511,18 +533,18 @@ void CRenderTarget::phase_combine()
+ 		phase_ssfx_fog_scattering();
+ 	}
+ 
+-	if (RImplementation.o.ssfx_motionblur && ps_ssfx_motionblur.y > 0)
++	if (!RImplementation.IsAetReflectionCapture() && RImplementation.o.ssfx_motionblur && ps_ssfx_motionblur.y > 0)
+ 	{
+ 		phase_ssfx_motion_blur();
+ 	}
+ 
+-	if (scope_3D_fake_enabled)
++	if (scope_3D_fake_enabled && !RImplementation.IsAetReflectionCapture())
+ 	{
+ 		phase_3DSSReticle(); // Redotix99: for 3D Shader Based Scopes
+ 	}
+ 
+ 	//Compute blur textures
+-	if (!Device.m_SecondViewport.IsSVPFrame()) // Temp fix for blur buffer and SVP
++	if (!Device.m_SecondViewport.IsSVPFrame() && !RImplementation.IsAetReflectionCapture()) // Temp fix for blur buffer and SVP
+ 		phase_blur();
+ 
+ 	//Compute bloom (new)
+@@ -538,14 +560,14 @@ void CRenderTarget::phase_combine()
+ 		phase_pp_bloom();
+ 	}
+ 	
+-	if (ps_r2_ls_flags.test(R2FLAG_DOF))
++	if (!RImplementation.IsAetReflectionCapture() && ps_r2_ls_flags.test(R2FLAG_DOF))
+ 	{	
+ 		phase_dof();
+ 	}
+ 
+ 	phase_lut();	
+ 
+-	if(ps_r2_mask_control.x > 0)
++	if(!RImplementation.IsAetReflectionCapture() && ps_r2_mask_control.x > 0)
+ 	{
+ 		phase_gasmask_dudv();
+ 		if (ps_r2_drops_control.x > 0)
+@@ -554,28 +576,28 @@ void CRenderTarget::phase_combine()
+ 		}
+ 	}
+ 	
+-	if(ps_r2_nightvision > 0)
++	if(!RImplementation.IsAetReflectionCapture() && ps_r2_nightvision > 0)
+ 		phase_nightvision();
+ 
+ 	//--DSR-- HeatVision_start
+-	if (ps_r2_heatvision > 0)
++	if (!RImplementation.IsAetReflectionCapture() && ps_r2_heatvision > 0)
+ 		phase_heatvision();
+ 	//--DSR-- HeatVision_end
+ 
+-	if (scope_fake_enabled)
++	if (scope_fake_enabled && !RImplementation.IsAetReflectionCapture())
+ 	{
+ 		phase_fakescope(); //crookr
+ 	}
+ 
+     //SMAA
+-	if (ps_smaa_quality)
++	if (ps_smaa_quality && !RImplementation.IsAetReflectionCapture())
+ 	{
+         //PIX_EVENT(SMAA);
+         phase_smaa();
+         RCache.set_Stencil(FALSE);
+     }    
+ 	
+-	if (RImplementation.o.ssfx_taa && ps_ssfx_taa.x > 0)
++	if (!RImplementation.IsAetReflectionCapture() && RImplementation.o.ssfx_taa && ps_ssfx_taa.x > 0)
+ 	{
+ 		phase_ssfx_taa();
+ 	}
