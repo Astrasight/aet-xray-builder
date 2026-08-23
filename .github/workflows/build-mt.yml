@@ -1,0 +1,122 @@
+name: Build AET v1.3 MT DX11-AVX
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  XRAY_REPO: themrdemonized/xray-monolith
+  XRAY_REF: becde89ee2e7410b99e8f08e3213ca0941763f81
+  SOLUTION: src/engine-vs2022.sln
+  CONFIGURATION: DX11-AVX
+  ARTIFACT_NAME: AET-Reflected-Cone-v1.3-MT-DX11-AVX
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout builder files
+        uses: actions/checkout@v4
+        with:
+          path: builder
+
+      - name: Checkout exact Modded Exes MT source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.XRAY_REPO }}
+          ref: ${{ env.XRAY_REF }}
+          path: xray
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Configure pagefile
+        uses: al-cheb/configure-pagefile-action@v1.3
+        with:
+          minimum-size: 8GB
+          maximum-size: 8GB
+          disk-root: "C:"
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+        with:
+          msbuild-architecture: x64
+
+      - name: Verify MT source revision
+        shell: pwsh
+        run: |
+          Set-Location xray
+          $actual = (git rev-parse HEAD).Trim()
+          Write-Host "Source revision: $actual"
+          if ($actual -ne "${{ env.XRAY_REF }}") {
+            throw "Wrong source revision: $actual"
+          }
+
+      - name: Apply AET v1.3 MT source port
+        shell: pwsh
+        run: |
+          Set-Location xray
+          python ../builder/patches/apply_aet_v1_3_mt.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          git diff --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          git diff --stat
+          git diff --binary | Out-File -FilePath ../builder/AET_v1.3_MT_applied.diff -Encoding utf8
+
+      - name: Build DX11-AVX MT
+        shell: pwsh
+        working-directory: xray
+        run: |
+          msbuild /m /p:Configuration=${{ env.CONFIGURATION }} ${{ env.SOLUTION }}
+
+      - name: Collect files
+        shell: pwsh
+        run: |
+          $bin = Join-Path $PWD "xray/_build/_game/bin_dbg"
+          $exe = Join-Path $bin "AnomalyDX11AVX.exe"
+
+          if (!(Test-Path $exe)) {
+            Write-Host "Contents of bin_dbg:"
+            if (Test-Path $bin) {
+              Get-ChildItem $bin | Format-Table Name, Length
+            }
+            throw "AnomalyDX11AVX.exe was not produced"
+          }
+
+          New-Item -ItemType Directory -Force -Path artifact | Out-Null
+          Copy-Item $exe "artifact/AnomalyDX11AVX.exe"
+
+          $pdb = Join-Path $bin "AnomalyDX11AVX.pdb"
+          if (Test-Path $pdb) {
+            Copy-Item $pdb "artifact/AnomalyDX11AVX.pdb"
+          }
+
+          if (Test-Path "builder/AET_v1.3_MT_applied.diff") {
+            Copy-Item "builder/AET_v1.3_MT_applied.diff" "artifact/AET_v1.3_MT_applied.diff"
+          }
+
+          $hash = (Get-FileHash "artifact/AnomalyDX11AVX.exe" -Algorithm SHA256).Hash
+          @(
+            "Aeternelle 3DSS Reflected Cone v1.3 MT"
+            "Source commit: ${{ env.XRAY_REF }}"
+            "Configuration: ${{ env.CONFIGURATION }}"
+            "Expected runtime base: Modded Exes MT-TEST 2026.08.17"
+            "AnomalyDX11AVX.exe SHA256: $hash"
+            "GitHub Actions run: ${{ github.run_id }}"
+          ) | Set-Content "artifact/BUILD_INFO.txt" -Encoding UTF8
+
+          Write-Host "EXE SHA256: $hash"
+          Get-ChildItem artifact | Format-Table Name, Length
+
+      - name: Upload built MT EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: artifact/*
+          if-no-files-found: error
+          retention-days: 7
