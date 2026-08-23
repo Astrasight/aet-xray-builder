@@ -1,0 +1,31 @@
+name: Build AET v1.3.1 MT SAFE BOOT
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: builder
+      - uses: actions/checkout@v4
+        with:
+          repository: themrdemonized/xray-monolith
+          ref: becde89ee2e7410b99e8f08e3213ca0941763f81
+          path: xray
+          submodules: recursive
+      - uses: microsoft/setup-msbuild@v2
+      - shell: pwsh
+        run: |
+          Set-Location xray
+          python ../builder/aet_v131_mt_safe/apply_aet_v1_3_1_mt_safe.py
+      - shell: pwsh
+        working-directory: xray
+        run: |
+          msbuild /m /p:Configuration=DX11-AVX /p:Platform=x64 src/engine-vs2022.sln
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AET-v1.3.1-MT-SAFE-BOOT
+          path: xray/**/AnomalyDX11AVX.exe
